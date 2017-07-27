@@ -1,4 +1,5 @@
 #include"stdafx.h"
+#include <vector>
 
 class AudioProcesser : public IAudioEndpointVolumeCallback {
 private:
@@ -9,15 +10,17 @@ private:
 		int nBufferLength;
 		short wSend[512];
 	} AUDIOPROCESSER_DATA;
-	AUDIOPROCESSER_DATA data;
-	WAVEFORMATEXTENSIBLE pwfx;
-	BOOL bRunning;
-	sockaddr_in local;
-	sockaddr_in dest;
-	SOCKET sSender;
+	AUDIOPROCESSER_DATA mSendBuffer;
+	WAVEFORMATEXTENSIBLE mAudioFormat;
+	BOOL mIsRunning;
+	sockaddr_in mLocalAddress;
+	std::vector<sockaddr_in> mDest;
+	SOCKET mSocket;
 	HANDLE hProcessThread;
+	HANDLE hReceiverThread;
 	int nWaveType;
 	long nAudioIndex;
+	int mFromMode;
 	IMMDevice *pFrom, *pTo;
 	IAudioClient *pToClient;
 	IAudioRenderClient *pToRender;
@@ -28,7 +31,8 @@ private:
 public:
 	AudioProcesser();
 	~AudioProcesser();
-	DWORD WINAPI AudioProcesser::BackgroundProcess(LPVOID arg);
+	DWORD BackgroundProcess();
+	static DWORD WINAPI BackgroundProcessExternal(LPVOID *ptr);
 	HRESULT SetFormat(WAVEFORMATEX *pwfx);
 	HRESULT CopyData(BYTE* pData, UINT32 numFramesAvailable, BOOL *bDone);
 	HRESULT StartSending(char *sRemoteAddr, TCHAR *selFrom, TCHAR *selTo);
