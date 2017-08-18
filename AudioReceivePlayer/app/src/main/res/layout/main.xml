@@ -8,6 +8,21 @@
     android:paddingTop="@dimen/activity_vertical_margin"
     tools:context=".MainActivity">
 
-    <TextView android:id="@+id/lblIPs" android:layout_width="wrap_content" android:layout_height="wrap_content" />
-	<Button android:id="@+id/cmdStartStop" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_alignParentBottom="true" />
+    <TextView android:id="@+id/ip_list_label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textAppearance="?android:attr/textAppearanceSmall" android:text="@string/status" />
+	<Button android:id="@+id/start_stop_button" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_alignParentBottom="true" android:text="@string/btn_start" style="?android:attr/buttonStyle" />
+	<LinearLayout
+		android:orientation="horizontal"
+		android:gravity="center"
+		android:layout_above="@id/start_stop_button"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content">
+		<TextView
+			android:id="@+id/buffer_size_text"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content" android:textAppearance="?android:attr/textAppearanceMedium"
+			android:padding="4dp"
+			android:text="@string/buffer_count"
+			/>
+		<SeekBar android:id="@+id/buffer_size" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="128" />
+	</LinearLayout>
 </RelativeLayout>

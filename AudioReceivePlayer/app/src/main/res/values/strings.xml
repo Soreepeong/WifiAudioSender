@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <string name="app_name">AudioReceivePlayer</string>
+    <string name="app_name">Wifi Audio Receiver</string>
+    <string name="noti_desc">Tap to open</string>
     <string name="action_settings">Settings</string>
-    <string name="hello_world">Hello world!</string>
+    <string name="btn_start">Start</string>
+    <string name="btn_stop">Stop</string>
+    <string name="buffer_count">Buffers: %d</string>
+    <string name="status" formatted="false">In buffer: %d\nDropped: %d\n\n%s</string>
 
 </resources>

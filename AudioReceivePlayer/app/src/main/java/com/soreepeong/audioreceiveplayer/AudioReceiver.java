@@ -5,16 +5,19 @@ import java.net.DatagramSocket;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.concurrent.PriorityBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
-import android.media.AudioFormat;
-import android.media.AudioTrack;
+import android.support.annotation.NonNull;
 
 public class AudioReceiver implements Runnable {
-	private static final int AUDIO_TRACK_BUFFER_SIZE = 0x10000; // About stutters
 	private DatagramSocket mReceiverSocket;
 	private Thread mReceiverThread = null;
 	private boolean mRunning = false;
-	private final ArrayList<ByteBuffer> mData = new ArrayList<>();
+	private final PriorityBlockingQueue<AudioBuffer> mData = new PriorityBlockingQueue<>();
+	public final static int MAX_DATA = 48;
+	private int mMaxData = 8;
+	private int mDropped;
 
 	@Override
 	public void run() {
@@ -23,46 +26,34 @@ public class AudioReceiver implements Runnable {
 		Thread reader = new Thread() {
 			@Override
 			public void run() {
-				int mSampleRate = 44100;
-				int mChannelOut = AudioFormat.CHANNEL_OUT_STEREO;
-
-				// AudioTrack mAudio = new AudioTrack(0x3, mSampleRate, mChannelOut, AudioFormat.ENCODING_PCM_16BIT, AUDIO_TRACK_BUFFER_SIZE, AudioTrack.MODE_STREAM);
-				// mAudio.play();
+				int mSampleRate = 48000;
 				long mAH = Native.OpenAudioDevice(mSampleRate, 2);
-				android.util.Log.d("AudioReceiver", "OpenAudioDevice 44100/2");
-
 				try {
-					while (mRunning) {
-						try {
-							ByteBuffer buffer;
-							synchronized (mData) {
-								if (mData.isEmpty())
-									mData.wait();
-								buffer = mData.remove(0);
+					while (mRunning && !Thread.interrupted()) {
+						if (mData.size() >= mMaxData) {
+							while(!mData.isEmpty()) {
+								mData.poll().recycle();
+								mDropped++;
 							}
-							buffer.order(ByteOrder.LITTLE_ENDIAN);
-							buffer.rewind();
-							int nIndex = buffer.getInt();
-							int nChannelConf = buffer.getInt();
-							int nSamplesPerSec = buffer.getInt();
-							int nBufferLength = buffer.getInt();
-							if (nSamplesPerSec != mSampleRate) {
-								mSampleRate = nSamplesPerSec;
+						}
+						AudioBuffer buf = mData.poll(60, TimeUnit.SECONDS);
+						if (buf == null) continue;
+						try {
+							if (buf.nSamplesPerSec != mSampleRate) {
+								mSampleRate = buf.nSamplesPerSec;
 								if (mAH != 0) Native.CloseAudioDevice(mAH);
 								mAH = Native.OpenAudioDevice(mSampleRate, 2);
-								android.util.Log.d("AudioReceiver", "OpenAudioDevice "+mSampleRate+"/2");
-								// mAudio.setPlaybackRate(mSampleRate);
 							}
-							// mAudio.write(buffer.array(), buffer.position(), nBufferLength);
-							Native.AudioOut(mAH, buffer.array(), buffer.position(), nBufferLength);
-						} catch (InterruptedException ie) {
-							break;
+							Native.AudioOut(mAH, buf.mBuffer.array(), buf.mBuffer.position(), buf.nBufferLength);
 						} catch (Exception e) {
 							e.printStackTrace();
+						} finally {
+							buf.recycle();
 						}
 					}
-				}finally{
-					// if (mAudio != null) mAudio.release();
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				} finally {
 					if (mAH != 0) Native.CloseAudioDevice(mAH);
 				}
 			}
@@ -73,16 +64,7 @@ public class AudioReceiver implements Runnable {
 			reader.start();
 			while (mRunning && reader.isAlive()) {
 				mReceiverSocket.receive(receivePacket);
-				synchronized (mData) {
-					if (mData.isEmpty() || mData.get(0).getInt(0) < buffer.getInt(0)) {
-						ByteBuffer temp = ByteBuffer.allocate(buffer.capacity());
-						buffer.rewind();
-						temp.put(buffer);
-						mData.add(temp);
-						// if(mData.size() > 8) mData.subList(0, 4).clear();
-						mData.notify();
-					}
-				}
+				mData.add(AudioBuffer.getBuffer(buffer));
 			}
 		} catch (Exception e) {
 			e.printStackTrace();
@@ -90,16 +72,27 @@ public class AudioReceiver implements Runnable {
 			if (mReceiverSocket != null)
 				mReceiverSocket.close();
 			mReceiverThread = null;
+			reader.interrupt();
 			if (mRunning) {
-				reader.interrupt();
 				mRunning = false;
 				start();
 			}
 		}
 	}
 
+	public int getDropped() {
+		return mDropped;
+	}
+
+	public int getBufferCount() {
+		return mData.size();
+	}
+
 	public boolean start() {
 		if (mReceiverThread != null) return false;
+		while(!mData.isEmpty())
+			mData.poll().recycle();
+		mDropped = 0;
 		mReceiverThread = new Thread(this);
 		mReceiverThread.start();
 		return true;
@@ -108,7 +101,72 @@ public class AudioReceiver implements Runnable {
 	public boolean stop() {
 		if (mReceiverThread == null) return false;
 		mRunning = false;
+		if (mReceiverSocket != null)
+			mReceiverSocket.close();
 		mReceiverThread.interrupt();
 		return true;
+	}
+
+	public void setMaxData(int n) {
+		mMaxData = Math.max(1, Math.min(MAX_DATA, n));
+	}
+
+	public int getMaxData() {
+		return mMaxData;
+	}
+
+	public boolean isRunning() {
+		return mRunning || mReceiverThread != null;
+	}
+
+	private static class AudioBuffer implements Comparable<AudioBuffer> {
+		private final static AudioBuffer[] mAudioBuffers = new AudioBuffer[128];
+		int nIndex, nChannelConf, nSamplesPerSec, nBufferLength;
+		final ByteBuffer mBuffer = ByteBuffer.allocate(2048);
+
+		public static AudioBuffer getBuffer(ByteBuffer buffer) {
+			synchronized (mAudioBuffers) {
+				for(int i = 0; i < mAudioBuffers.length; i++){
+					AudioBuffer buf = mAudioBuffers[i];
+					if(buf == null)
+						continue;
+					mAudioBuffers[i] = null;
+					buf.initialize(buffer);
+					return buf;
+				}
+				return new AudioBuffer(buffer);
+			}
+		}
+
+		public void recycle() {
+			synchronized (mAudioBuffers) {
+				for(int i = 0; i < mAudioBuffers.length; i++)
+					if(mAudioBuffers[i] == null) {
+						mAudioBuffers[i] = this;
+						return;
+					}
+			}
+		}
+
+		private AudioBuffer(ByteBuffer buffer) {
+			initialize(buffer);
+		}
+
+		private void initialize(ByteBuffer buffer) {
+			buffer.rewind();
+			mBuffer.rewind();
+			mBuffer.put(buffer);
+			mBuffer.order(ByteOrder.LITTLE_ENDIAN);
+			mBuffer.rewind();
+			nIndex = mBuffer.getInt();
+			nChannelConf = mBuffer.getInt();
+			nSamplesPerSec = mBuffer.getInt();
+			nBufferLength = mBuffer.getInt();
+		}
+
+		@Override
+		public int compareTo(@NonNull AudioBuffer audioBuffer) {
+			return nIndex - audioBuffer.nIndex;
+		}
 	}
 }
