@@ -71,6 +71,7 @@ Exit:;
 			if (pData[i] != 0)
 				break;
 		if (i >= 0) { // Not empty!
+			int tcpBufPosition = 0;
 			int pass = 0;
 			int bytes = mAudioFormat.Format.wBitsPerSample / 8;
 			mSendBuffer.nBufferLength = 0;
@@ -78,8 +79,11 @@ Exit:;
 				if (mSendBuffer.nBufferLength + nDestChannels * sizeof(short) > sizeof(AUDIOPROCESSER_DATA::wSend)) {
 					mSendBuffer.index = nAudioIndex++;
 					for (auto dest = mDest.cbegin(); dest != mDest.cend(); ++dest)
-						if (sendto(mSocket, (char*) &mSendBuffer, mSendBuffer.nBufferLength + offsetof(AUDIOPROCESSER_DATA, wSend), 0, (sockaddr *) &*dest, sizeof(sockaddr_in)) == -1)
-							continue;
+						if(dest->isudp)
+							if (sendto(mSocket, (char*)&mSendBuffer, mSendBuffer.nBufferLength + offsetof(AUDIOPROCESSER_DATA, wSend), 0, (sockaddr *) &dest->dest, sizeof(sockaddr_in)) == -1)
+								continue;
+					memcpy(mTcpSendBuf + tcpBufPosition, &mSendBuffer, mSendBuffer.nBufferLength + offsetof(AUDIOPROCESSER_DATA, wSend));
+					tcpBufPosition += mSendBuffer.nBufferLength + offsetof(AUDIOPROCESSER_DATA, wSend);
 					mSendBuffer.nBufferLength = 0;
 				}
 				for (int j = 0; j < nChannels && j < nDestChannels; j++) {
@@ -97,9 +101,15 @@ Exit:;
 			if (mSendBuffer.nBufferLength > 0) {
 				mSendBuffer.index = nAudioIndex++;
 				for (auto dest = mDest.cbegin(); dest != mDest.cend(); ++dest)
-					if (sendto(mSocket, (char*) &mSendBuffer, mSendBuffer.nBufferLength + offsetof(AUDIOPROCESSER_DATA, wSend), 0, (sockaddr *) &*dest, sizeof(sockaddr_in)) == -1)
-						continue;
+						if(dest->isudp)
+							if (sendto(mSocket, (char*) &mSendBuffer, mSendBuffer.nBufferLength + offsetof(AUDIOPROCESSER_DATA, wSend), 0, (sockaddr *) &*dest, sizeof(sockaddr_in)) == -1)
+								continue;
+				memcpy(mTcpSendBuf + tcpBufPosition, &mSendBuffer, mSendBuffer.nBufferLength + offsetof(AUDIOPROCESSER_DATA, wSend));
+				tcpBufPosition += mSendBuffer.nBufferLength + offsetof(AUDIOPROCESSER_DATA, wSend);
 			}
+			if (tcpBufPosition)
+				for (auto i = mSocketTcp.cbegin(); i != mSocketTcp.cend(); ++i)
+					send(*i, mTcpSendBuf, tcpBufPosition, 0);
 		}
 	}
 	return ERROR_SUCCESS;
@@ -186,23 +196,28 @@ HRESULT AudioProcesser::StartSending(char *sRemoteAddr, TCHAR *selFrom, TCHAR *s
 	__try {
 		mDest.clear();
 		if (strlen(sRemoteAddr)) {
-			int d1, d2, d3, d4;
+			int d1, d2, d3, d4, port;
+			int c;
 
 			do {
+				port = 0x7d01;
 				d1 = d2 = d3 = d4 = -1;
-				if (sscanf_s(sRemoteAddr, "%d.%d.%d.%d", &d1, &d2, &d3, &d4) < 4)
+				if (sscanf_s(sRemoteAddr, "%d:%d.%d.%d.%d:%d", &c, &d1, &d2, &d3, &d4, &port) < 5)
 					continue;
 
 				sockaddr_in dest;
 				memset(&dest, 0, sizeof(dest));
 				dest.sin_family = AF_INET;
-				dest.sin_port = htons(0x7d01);
+				dest.sin_port = htons(port);
 				if (d1 >= 0 && d1 <= 255 && d2 >= 0 && d2 <= 255 && d3 >= 0 && d3 <= 255 && d4 >= 0 && d4 <= 255) {
 					dest.sin_addr.S_un.S_un_b.s_b1 = (unsigned char) d1;
 					dest.sin_addr.S_un.S_un_b.s_b2 = (unsigned char) d2;
 					dest.sin_addr.S_un.S_un_b.s_b3 = (unsigned char) d3;
 					dest.sin_addr.S_un.S_un_b.s_b4 = (unsigned char) d4;
-					mDest.push_back(dest);
+					DEST obj;
+					obj.dest = dest;
+					obj.isudp = c == 0;
+					mDest.push_back(obj);
 				} else {
 					// TODO: Process address
 				}
@@ -212,10 +227,25 @@ HRESULT AudioProcesser::StartSending(char *sRemoteAddr, TCHAR *selFrom, TCHAR *s
 		if (!mDest.empty() || mFromMode == 1) {
 			memset(&mLocalAddress, 0, sizeof(mLocalAddress));
 			mLocalAddress.sin_family = AF_INET;
-			mLocalAddress.sin_port = htons(0x7d01); // Choose any
+			mLocalAddress.sin_port = htons(0); // Choose any
 			mLocalAddress.sin_addr.S_un.S_addr = INADDR_ANY;
 			if ((mSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == NULL) return WSAGetLastError();
 			if (bind(mSocket, (sockaddr*) &mLocalAddress, sizeof(sockaddr_in)) == -1) return WSAGetLastError();
+
+			for(int i = 0; i < mDest.size(); ++i) {
+				if (mDest[i].isudp)
+					continue;
+
+				SOCKET tcp;
+				if ((tcp = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == NULL) return WSAGetLastError();
+				u_long mode = 1;
+				if(connect(tcp, (struct sockaddr *) &mDest[i].dest, sizeof(struct sockaddr)) >= 0){
+					ioctlsocket(tcp, FIONBIO, &mode);
+					mSocketTcp.push_back(tcp);
+				}
+				else
+					closesocket(tcp);
+			}
 		}
 
 		hProcessThread = CreateThread(NULL, NULL, (LPTHREAD_START_ROUTINE) BackgroundProcessExternal, this, NULL, NULL);
@@ -236,6 +266,11 @@ HRESULT AudioProcesser::StartSending(char *sRemoteAddr, TCHAR *selFrom, TCHAR *s
 		if (!mIsRunning) {
 			if (mSocket) closesocket(mSocket);
 			mSocket = NULL;
+			if (!mSocketTcp.empty()) {
+				for (int i = 0; i < mSocketTcp.size(); ++i)
+					closesocket(mSocketTcp[i]);
+				mSocketTcp.clear();
+			}
 		}
 	}
 	return ERROR_SUCCESS;
@@ -249,6 +284,11 @@ HRESULT AudioProcesser::StopSending() {
 	}
 	if (mSocket) closesocket(mSocket);
 	mSocket = NULL;
+	if (!mSocketTcp.empty()) {
+		for (auto i = mSocketTcp.cbegin(); i != mSocketTcp.cend(); ++i)
+			closesocket(*i);
+		mSocketTcp.clear();
+	}
 	SAFE_RELEASE(pFromVol);
 	SAFE_RELEASE(pToVol);
 	SAFE_RELEASE(pFrom);

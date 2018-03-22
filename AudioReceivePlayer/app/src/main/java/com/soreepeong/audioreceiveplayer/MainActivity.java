@@ -44,7 +44,9 @@ public class MainActivity extends Activity implements OnClickListener, WifiAudio
 				mViewIP.setText(mIpInfo);
 				return;
 			}
-			mViewIP.setText(getString(R.string.status, mBoundService.getAudio().getBufferCount(), mBoundService.getAudio().getDropped(), mIpInfo));
+			mViewIP.setText(getString(R.string.status,
+					mBoundService.getAudio().getBufferCount() + AudioReceiverTCP.getBufferCount(),
+					mBoundService.getAudio().getDropped() + AudioReceiverTCP.getDropped(), mIpInfo));
 			mHandler.removeCallbacks(this);
 			if (mBoundService != null && mBoundService.getAudio().isRunning())
 				mHandler.postDelayed(this, 100);
@@ -100,7 +102,7 @@ public class MainActivity extends Activity implements OnClickListener, WifiAudio
 		mBufferSizeBar = findViewById(R.id.buffer_size);
 		mBufferSizeText = findViewById(R.id.buffer_size_text);
 		mStartButton.setOnClickListener(this);
-		mBufferSizeBar.setMax(AudioReceiver.MAX_DATA - 1);
+		mBufferSizeBar.setMax(AudioReceiverUDP.MAX_DATA - 1);
 		mBufferSizeBar.setOnSeekBarChangeListener(this);
 		registerReceiver(mNetworkListener, new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION));
 		registerReceiver(mNetworkListener, new IntentFilter(WifiManager.RSSI_CHANGED_ACTION));
@@ -157,8 +159,10 @@ public class MainActivity extends Activity implements OnClickListener, WifiAudio
 	@Override
 	public void onProgressChanged(SeekBar seekBar, int i, boolean fromUser) {
 		mBufferSizeText.setText(getString(R.string.buffer_count, mBufferSizeBar.getProgress() + 1));
-		if (fromUser)
+		if (fromUser) {
 			mBoundService.getAudio().setMaxData(i + 1);
+			AudioReceiverTCP.setMaxData(i + 1);
+		}
 	}
 
 	@Override

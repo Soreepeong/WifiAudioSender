@@ -9,11 +9,12 @@ import android.os.Binder;
 import android.os.IBinder;
 import android.support.v4.app.NotificationCompat;
 
+import java.net.ServerSocket;
 import java.util.WeakHashMap;
 
 public class WifiAudioPlayerService extends Service {
 	public static final int NOTIFICATION = 1;
-	private final AudioReceiver mAudio = new AudioReceiver();
+	private final AudioReceiverUDP mAudio = new AudioReceiverUDP();
 	private final IBinder mBinder = new LocalBinder();
 	private final WeakHashMap<OnAudioStatusChangeListener, Object> mListeners = new WeakHashMap<>();
 
@@ -36,14 +37,15 @@ public class WifiAudioPlayerService extends Service {
 		}
 	}
 
-	public AudioReceiver getAudio(){
+	public AudioReceiverUDP getAudio(){
 		return mAudio;
 	}
 
 	public void startAudio(){
 		mAudio.start();
+		AudioReceiverTCP.start();
 		Notification mNotification;
-		NotificationCompat.Builder bd = new NotificationCompat.Builder(this);
+		NotificationCompat.Builder bd = new NotificationCompat.Builder(this, "WAR");
 		bd.setSmallIcon(R.drawable.ic_launcher);
 		bd.setPriority(NotificationCompat.PRIORITY_MIN);
 		bd.setAutoCancel(false);
@@ -61,6 +63,7 @@ public class WifiAudioPlayerService extends Service {
 
 	public void stopAudio(){
 		mAudio.stop();
+		AudioReceiverTCP.stop();
 		SharedPreferences.Editor mPref = getSharedPreferences("service_config", 0).edit();
 		mPref.putInt("max", mAudio.getMaxData());
 		mPref.apply();

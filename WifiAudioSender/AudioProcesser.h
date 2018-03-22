@@ -10,12 +10,18 @@ private:
 		int nBufferLength;
 		short wSend[512];
 	} AUDIOPROCESSER_DATA;
+	typedef struct _DEST {
+		sockaddr_in dest;
+		bool isudp;
+	}DEST;
 	AUDIOPROCESSER_DATA mSendBuffer;
+	char mTcpSendBuf[1048576];
 	WAVEFORMATEXTENSIBLE mAudioFormat;
 	BOOL mIsRunning;
 	sockaddr_in mLocalAddress;
-	std::vector<sockaddr_in> mDest;
+	std::vector<DEST> mDest;
 	SOCKET mSocket;
+	std::vector<SOCKET> mSocketTcp;
 	HANDLE hProcessThread;
 	HANDLE hReceiverThread;
 	int nWaveType;
