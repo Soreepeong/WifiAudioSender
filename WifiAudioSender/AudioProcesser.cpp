@@ -232,7 +232,7 @@ HRESULT AudioProcesser::StartSending(char *sRemoteAddr, TCHAR *selFrom, TCHAR *s
 			if ((mSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == NULL) return WSAGetLastError();
 			if (bind(mSocket, (sockaddr*) &mLocalAddress, sizeof(sockaddr_in)) == -1) return WSAGetLastError();
 
-			for(int i = 0; i < mDest.size(); ++i) {
+			for(size_t i = 0; i < mDest.size(); ++i) {
 				if (mDest[i].isudp)
 					continue;
 
@@ -260,14 +260,12 @@ HRESULT AudioProcesser::StartSending(char *sRemoteAddr, TCHAR *selFrom, TCHAR *s
 			pFromVol->RegisterControlChangeNotify(this);
 			pToVol->RegisterControlChangeNotify(this);
 		}
-
-		return ERROR_SUCCESS;
 	} __finally {
 		if (!mIsRunning) {
 			if (mSocket) closesocket(mSocket);
 			mSocket = NULL;
 			if (!mSocketTcp.empty()) {
-				for (int i = 0; i < mSocketTcp.size(); ++i)
+				for (size_t i = 0; i < mSocketTcp.size(); ++i)
 					closesocket(mSocketTcp[i]);
 				mSocketTcp.clear();
 			}

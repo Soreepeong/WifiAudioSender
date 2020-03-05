@@ -1,20 +1,19 @@
 package com.soreepeong.audioreceiveplayer;
 
-import android.app.Notification;
-import android.app.PendingIntent;
-import android.app.Service;
+import android.app.*;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Binder;
+import android.os.Build;
 import android.os.IBinder;
-import android.support.v4.app.NotificationCompat;
+import androidx.core.app.NotificationCompat;
 
-import java.net.ServerSocket;
+import java.util.ArrayList;
 import java.util.WeakHashMap;
 
 public class WifiAudioPlayerService extends Service {
 	public static final int NOTIFICATION = 1;
-	private final AudioReceiverUDP mAudio = new AudioReceiverUDP();
+	private final AudioReceiver mAudio = new AudioReceiver();
 	private final IBinder mBinder = new LocalBinder();
 	private final WeakHashMap<OnAudioStatusChangeListener, Object> mListeners = new WeakHashMap<>();
 
@@ -37,13 +36,33 @@ public class WifiAudioPlayerService extends Service {
 		}
 	}
 
-	public AudioReceiverUDP getAudio(){
+	public AudioReceiver getAudio(){
 		return mAudio;
+	}
+
+	@Override
+	public void onCreate() {
+		super.onCreate();
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+			ArrayList<NotificationChannel> channels = new ArrayList<>();
+			NotificationChannel channel;
+
+			channel = new NotificationChannel(
+					"WAR",
+					getString(R.string.app_name),
+					NotificationManager.IMPORTANCE_DEFAULT);
+			channel.setDescription(getString(R.string.app_name));
+			channels.add(channel);
+
+			NotificationManager notificationManager = (NotificationManager) getSystemService(
+					NOTIFICATION_SERVICE);
+			assert notificationManager != null;
+			notificationManager.createNotificationChannels(channels);
+		}
 	}
 
 	public void startAudio(){
 		mAudio.start();
-		AudioReceiverTCP.start();
 		Notification mNotification;
 		NotificationCompat.Builder bd = new NotificationCompat.Builder(this, "WAR");
 		bd.setSmallIcon(R.drawable.ic_launcher);
@@ -63,7 +82,6 @@ public class WifiAudioPlayerService extends Service {
 
 	public void stopAudio(){
 		mAudio.stop();
-		AudioReceiverTCP.stop();
 		SharedPreferences.Editor mPref = getSharedPreferences("service_config", 0).edit();
 		mPref.putInt("max", mAudio.getMaxData());
 		mPref.apply();

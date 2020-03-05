@@ -210,7 +210,4 @@ FakesAssemblies/
 GeneratedArtifacts/
 _Pvt_Extensions/
 ModelManifest.xml
-AudioReceivePlayer/app
-AudioReceivePlayer/.gradle/
-AudioReceivePlayer/.idea/
-*.lock
+
